@@ -11,4 +11,11 @@ app = FastAPI(
     description="Personal finance backend API.",
 )
 
+
+@app.get("/health", summary="Service health")
+def health() -> dict[str, str]:
+    """Simple health endpoint used by external clients."""
+    return {"status": "ok"}
+
+
 app.include_router(api_router, prefix="/api/v1")
