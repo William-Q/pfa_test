@@ -1,0 +1,9 @@
+[project]
+name = "pennywise"
+version = "0.1.0"
+description = "Personal finance app with FastAPI, Streamlit, and PostgreSQL"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["tests"]
