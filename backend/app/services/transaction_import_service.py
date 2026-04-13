@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -13,6 +12,7 @@ import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.models.transaction import Transaction, TransactionSourceType
 from app.services.csv_column_mapper import normalize_columns
 from app.services.transaction_normalizer import normalize_transactions
 
@@ -39,8 +39,6 @@ def import_transactions(
     import_batch_id: str | None = None,
 ) -> ImportResult:
     """Map/normalize rows and persist them as transaction records."""
-    from app.models.transaction import Transaction
-
     total_rows = len(csv_dataframe.index)
     inserted_rows = 0
     error_samples: list[str] = []
@@ -91,41 +89,7 @@ def import_transactions(
 
 def parse_csv_upload(contents: bytes) -> DataFrame:
     """Parse raw CSV bytes into a DataFrame."""
-    csv_buffer = pd.io.common.BytesIO(contents)
-    sample = contents[:4096].decode("utf-8-sig", errors="ignore")
-    delimiter = _detect_delimiter(sample)
-
-    dataframe = pd.read_csv(
-        csv_buffer,
-        encoding="utf-8-sig",
-        sep=delimiter,
-        skipinitialspace=True,
-        index_col=False,
-    )
-    dataframe.columns = [str(column).replace("\ufeff", "").strip() for column in dataframe.columns]
-    return _drop_artifact_index_column(dataframe)
-
-
-def _detect_delimiter(sample: str) -> str | None:
-    """Best-effort delimiter detection for vendor CSV variants."""
-    if not sample.strip():
-        return None
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
-        return dialect.delimiter
-    except csv.Error:
-        return None
-
-
-def _drop_artifact_index_column(dataframe: DataFrame) -> DataFrame:
-    """Drop an artifact index column commonly produced in exported CSVs."""
-    if dataframe.empty:
-        return dataframe
-
-    first_column = dataframe.columns[0]
-    if str(first_column).startswith("Unnamed:"):
-        return dataframe.iloc[:, 1:]
-    return dataframe
+    return pd.read_csv(pd.io.common.BytesIO(contents))
 
 
 def _to_date(value: object) -> date | None:
@@ -139,8 +103,6 @@ def _to_decimal(value: object) -> Decimal:
 
 
 def _resolve_source_type(source_type: str) -> TransactionSourceType:
-    from app.models.transaction import TransactionSourceType
-
     try:
         return TransactionSourceType(source_type)
     except ValueError:
