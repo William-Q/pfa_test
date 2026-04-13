@@ -64,3 +64,29 @@ def test_normalize_columns_raises_on_missing_required_mapping_keys() -> None:
 
     with pytest.raises(InvalidMappingConfigError, match="description"):
         normalize_columns(dataframe, mapping_config)
+
+
+def test_normalize_columns_supports_finance_csv_header_mapping() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "Posted On": ["2026-04-02"],
+            "Debit/Credit": ["$25.00"],
+            "Merchant Name": ["Local Market"],
+            "Reference": ["abc-123"],
+        }
+    )
+    mapping_config = {
+        "date": "Posted On",
+        "amount": "Debit/Credit",
+        "description": "Merchant Name",
+    }
+
+    normalized = normalize_columns(dataframe, mapping_config)
+
+    assert normalized.to_dict(orient="records") == [
+        {
+            "date": "2026-04-02",
+            "amount": "$25.00",
+            "description": "Local Market",
+        }
+    ]

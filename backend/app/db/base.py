@@ -8,4 +8,4 @@ class Base(DeclarativeBase):
 
 
 # Ensure model metadata is registered on import.
-from app.models import Transaction  # noqa: E402,F401
+from app.models.transaction import Transaction  # noqa: E402,F401
