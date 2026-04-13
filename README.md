@@ -43,7 +43,8 @@ Install the following on your machine:
 2. **Create an environment file (optional but recommended)**
 
    ```bash
-   cp .env.sample .env
+   docker version
+   docker info
    ```
 
    Edit `.env` if you want to override defaults (DB credentials, app settings, etc.).
