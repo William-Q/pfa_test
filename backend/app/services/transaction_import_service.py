@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from io import StringIO
 import uuid
 
 from pandas import DataFrame
@@ -17,6 +19,33 @@ from app.services.csv_column_mapper import normalize_columns
 from app.services.transaction_normalizer import normalize_transactions
 
 MAX_ERROR_SAMPLES = 10
+DEFAULT_NO_HEADER_COLUMNS: tuple[str, ...] = (
+    "Transaction Date",
+    "Amount",
+    "Type",
+    "Reference",
+    "Description",
+)
+KNOWN_CSV_HEADERS: frozenset[str] = frozenset(
+    {
+        "details",
+        "posting date",
+        "description",
+        "amount",
+        "type",
+        "balance",
+        "check or slip #",
+        "posted date",
+        "reference number",
+        "payee",
+        "address",
+        "card",
+        "transaction date",
+        "post date",
+        "category",
+        "memo",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -89,7 +118,59 @@ def import_transactions(
 
 def parse_csv_upload(contents: bytes) -> DataFrame:
     """Parse raw CSV bytes into a DataFrame."""
-    return pd.read_csv(pd.io.common.BytesIO(contents))
+    decoded_contents = contents.decode("utf-8-sig")
+    rows = [row for row in csv.reader(StringIO(decoded_contents)) if row]
+    if not rows:
+        return pd.DataFrame()
+
+    first_row = [cell.strip() for cell in rows[0]]
+    has_header = _looks_like_header(first_row)
+
+    if has_header:
+        columns = [column.lstrip("\ufeff").strip() for column in first_row]
+        data_rows = rows[1:]
+    else:
+        data_rows = rows
+        sample_width = len(first_row)
+        if sample_width == len(DEFAULT_NO_HEADER_COLUMNS):
+            columns = list(DEFAULT_NO_HEADER_COLUMNS)
+        else:
+            columns = [f"column_{index}" for index in range(1, sample_width + 1)]
+
+    expected_width = len(columns)
+    normalized_rows = [
+        _normalize_row_width([str(value).strip() for value in row], expected_width)
+        for row in data_rows
+    ]
+
+    dataframe = pd.DataFrame(normalized_rows, columns=columns)
+    return _drop_leading_unnamed_column(dataframe)
+
+
+def _looks_like_header(row: list[str]) -> bool:
+    normalized_cells = {
+        value.strip().lower()
+        for value in row
+        if value and value.strip()
+    }
+    return any(cell in KNOWN_CSV_HEADERS for cell in normalized_cells)
+
+
+def _normalize_row_width(row: list[str], width: int) -> list[str]:
+    if len(row) < width:
+        return row + [""] * (width - len(row))
+    if len(row) > width:
+        return row[:width]
+    return row
+
+
+def _drop_leading_unnamed_column(dataframe: DataFrame) -> DataFrame:
+    if dataframe.empty:
+        return dataframe
+    first_column_name = str(dataframe.columns[0]).strip().lower()
+    if first_column_name in {"", "unnamed: 0"}:
+        return dataframe.drop(columns=[dataframe.columns[0]])
+    return dataframe
 
 
 def _to_date(value: object) -> date | None:
