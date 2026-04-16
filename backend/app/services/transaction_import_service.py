@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from io import StringIO
-from typing import TYPE_CHECKING
 import uuid
 
 from pandas import DataFrame
@@ -49,7 +48,6 @@ KNOWN_CSV_HEADERS: frozenset[str] = frozenset(
         "memo",
     }
 )
-NUMERIC_HEADER_HINTS: tuple[str, ...] = ("amount", "balance", "debit", "credit")
 
 
 @dataclass(slots=True)
@@ -150,8 +148,7 @@ def parse_csv_upload(contents: bytes) -> DataFrame:
     ]
 
     dataframe = pd.DataFrame(normalized_rows, columns=columns)
-    dataframe = _drop_leading_unnamed_column(dataframe)
-    return _coerce_known_numeric_columns(dataframe)
+    return _drop_leading_unnamed_column(dataframe)
 
 
 def _looks_like_header(row: list[str]) -> bool:
@@ -178,27 +175,6 @@ def _drop_leading_unnamed_column(dataframe: DataFrame) -> DataFrame:
     if first_column_name in {"", "unnamed: 0"}:
         return dataframe.drop(columns=[dataframe.columns[0]])
     return dataframe
-
-
-def _coerce_known_numeric_columns(dataframe: DataFrame) -> DataFrame:
-    result = dataframe.copy()
-    for column_name in result.columns:
-        normalized_name = str(column_name).strip().lower()
-        if not any(hint in normalized_name for hint in NUMERIC_HEADER_HINTS):
-            continue
-
-        source_series = result[column_name]
-        non_empty_values = source_series[source_series != ""]
-        if non_empty_values.empty:
-            continue
-
-        parsed_non_empty = pd.to_numeric(non_empty_values, errors="coerce")
-        if parsed_non_empty.notna().all():
-            result[column_name] = pd.to_numeric(
-                source_series.replace("", pd.NA),
-                errors="coerce",
-            )
-    return result
 
 
 def _to_date(value: object) -> date | None:
