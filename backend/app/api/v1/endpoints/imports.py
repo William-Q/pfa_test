@@ -21,7 +21,14 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 )
 async def import_transactions_csv(
     file: UploadFile = File(..., description="CSV file"),
-    mapping_config: str = Form(..., description="JSON object mapping canonical fields to CSV columns"),
+    mapping_config: str = Form(
+        ...,
+        description=(
+            "JSON object mapping canonical fields (date, amount, description) to CSV columns. "
+            "For no-header 5-column exports, default parsed columns are "
+            "Transaction Date, Amount, Type, Reference, Description."
+        ),
+    ),
     account_name: str = Form("default_account"),
     source_type: str = Form("bank_csv"),
     currency: str = Form("USD"),
