@@ -14,9 +14,11 @@ import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.transaction import Transaction, TransactionSourceType
 from app.services.csv_column_mapper import normalize_columns
 from app.services.transaction_normalizer import normalize_transactions
+
+if TYPE_CHECKING:
+    from app.models.transaction import TransactionSourceType
 
 MAX_ERROR_SAMPLES = 10
 DEFAULT_NO_HEADER_COLUMNS: tuple[str, ...] = (
@@ -68,6 +70,8 @@ def import_transactions(
     import_batch_id: str | None = None,
 ) -> ImportResult:
     """Map/normalize rows and persist them as transaction records."""
+    from app.models.transaction import Transaction
+
     total_rows = len(csv_dataframe.index)
     inserted_rows = 0
     error_samples: list[str] = []
@@ -184,6 +188,8 @@ def _to_decimal(value: object) -> Decimal:
 
 
 def _resolve_source_type(source_type: str) -> TransactionSourceType:
+    from app.models.transaction import TransactionSourceType
+
     try:
         return TransactionSourceType(source_type)
     except ValueError:
