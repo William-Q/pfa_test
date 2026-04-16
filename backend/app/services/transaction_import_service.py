@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from io import StringIO
+from typing import TYPE_CHECKING
 import uuid
 
 from pandas import DataFrame
@@ -12,11 +15,41 @@ import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.transaction import Transaction, TransactionSourceType
 from app.services.csv_column_mapper import normalize_columns
 from app.services.transaction_normalizer import normalize_transactions
 
+if TYPE_CHECKING:
+    from app.models.transaction import TransactionSourceType
+
 MAX_ERROR_SAMPLES = 10
+DEFAULT_NO_HEADER_COLUMNS: tuple[str, ...] = (
+    "Transaction Date",
+    "Amount",
+    "Type",
+    "Reference",
+    "Description",
+)
+KNOWN_CSV_HEADERS: frozenset[str] = frozenset(
+    {
+        "details",
+        "posting date",
+        "description",
+        "amount",
+        "type",
+        "balance",
+        "check or slip #",
+        "posted date",
+        "reference number",
+        "payee",
+        "address",
+        "card",
+        "transaction date",
+        "post date",
+        "category",
+        "memo",
+    }
+)
+NUMERIC_HEADER_HINTS: tuple[str, ...] = ("amount", "balance", "debit", "credit")
 
 
 @dataclass(slots=True)
@@ -39,6 +72,8 @@ def import_transactions(
     import_batch_id: str | None = None,
 ) -> ImportResult:
     """Map/normalize rows and persist them as transaction records."""
+    from app.models.transaction import Transaction
+
     total_rows = len(csv_dataframe.index)
     inserted_rows = 0
     error_samples: list[str] = []
@@ -89,7 +124,81 @@ def import_transactions(
 
 def parse_csv_upload(contents: bytes) -> DataFrame:
     """Parse raw CSV bytes into a DataFrame."""
-    return pd.read_csv(pd.io.common.BytesIO(contents))
+    decoded_contents = contents.decode("utf-8-sig")
+    rows = [row for row in csv.reader(StringIO(decoded_contents)) if row]
+    if not rows:
+        return pd.DataFrame()
+
+    first_row = [cell.strip() for cell in rows[0]]
+    has_header = _looks_like_header(first_row)
+
+    if has_header:
+        columns = [column.lstrip("\ufeff").strip() for column in first_row]
+        data_rows = rows[1:]
+    else:
+        data_rows = rows
+        sample_width = len(first_row)
+        if sample_width == len(DEFAULT_NO_HEADER_COLUMNS):
+            columns = list(DEFAULT_NO_HEADER_COLUMNS)
+        else:
+            columns = [f"column_{index}" for index in range(1, sample_width + 1)]
+
+    expected_width = len(columns)
+    normalized_rows = [
+        _normalize_row_width([str(value).strip() for value in row], expected_width)
+        for row in data_rows
+    ]
+
+    dataframe = pd.DataFrame(normalized_rows, columns=columns)
+    dataframe = _drop_leading_unnamed_column(dataframe)
+    return _coerce_known_numeric_columns(dataframe)
+
+
+def _looks_like_header(row: list[str]) -> bool:
+    normalized_cells = {
+        value.strip().lower()
+        for value in row
+        if value and value.strip()
+    }
+    return any(cell in KNOWN_CSV_HEADERS for cell in normalized_cells)
+
+
+def _normalize_row_width(row: list[str], width: int) -> list[str]:
+    if len(row) < width:
+        return row + [""] * (width - len(row))
+    if len(row) > width:
+        return row[:width]
+    return row
+
+
+def _drop_leading_unnamed_column(dataframe: DataFrame) -> DataFrame:
+    if dataframe.empty:
+        return dataframe
+    first_column_name = str(dataframe.columns[0]).strip().lower()
+    if first_column_name in {"", "unnamed: 0"}:
+        return dataframe.drop(columns=[dataframe.columns[0]])
+    return dataframe
+
+
+def _coerce_known_numeric_columns(dataframe: DataFrame) -> DataFrame:
+    result = dataframe.copy()
+    for column_name in result.columns:
+        normalized_name = str(column_name).strip().lower()
+        if not any(hint in normalized_name for hint in NUMERIC_HEADER_HINTS):
+            continue
+
+        source_series = result[column_name]
+        non_empty_values = source_series[source_series != ""]
+        if non_empty_values.empty:
+            continue
+
+        parsed_non_empty = pd.to_numeric(non_empty_values, errors="coerce")
+        if parsed_non_empty.notna().all():
+            result[column_name] = pd.to_numeric(
+                source_series.replace("", pd.NA),
+                errors="coerce",
+            )
+    return result
 
 
 def _to_date(value: object) -> date | None:
@@ -103,6 +212,8 @@ def _to_decimal(value: object) -> Decimal:
 
 
 def _resolve_source_type(source_type: str) -> TransactionSourceType:
+    from app.models.transaction import TransactionSourceType
+
     try:
         return TransactionSourceType(source_type)
     except ValueError:

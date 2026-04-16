@@ -7,7 +7,11 @@ class CsvImportRequest(BaseModel):
     """Configuration payload used for transaction CSV imports."""
 
     mapping_config: dict[str, str] = Field(
-        description="Canonical-to-source column mapping for date, amount, description."
+        description=(
+            "Canonical-to-source column mapping for date, amount, description. "
+            "For no-header 5-column CSVs, parsed column names default to "
+            "Transaction Date, Amount, Type, Reference, Description."
+        )
     )
     account_name: str = Field(default="default_account", min_length=1, max_length=120)
     source_type: str = Field(default="bank_csv", min_length=1, max_length=64)
