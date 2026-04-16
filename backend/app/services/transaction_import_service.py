@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 from app.services.csv_column_mapper import normalize_columns
 from app.services.transaction_normalizer import normalize_transactions
 
+if TYPE_CHECKING:
+    from app.models.transaction import TransactionSourceType
+
 MAX_ERROR_SAMPLES = 10
 DEFAULT_NO_HEADER_COLUMNS: tuple[str, ...] = (
     "Transaction Date",
@@ -45,7 +48,6 @@ KNOWN_CSV_HEADERS: frozenset[str] = frozenset(
         "memo",
     }
 )
-NUMERIC_HEADER_HINTS: tuple[str, ...] = ("amount", "balance", "debit", "credit")
 
 
 @dataclass(slots=True)
@@ -146,8 +148,7 @@ def parse_csv_upload(contents: bytes) -> DataFrame:
     ]
 
     dataframe = pd.DataFrame(normalized_rows, columns=columns)
-    dataframe = _drop_leading_unnamed_column(dataframe)
-    return _coerce_known_numeric_columns(dataframe)
+    return _drop_leading_unnamed_column(dataframe)
 
 
 def _looks_like_header(row: list[str]) -> bool:
@@ -176,27 +177,6 @@ def _drop_leading_unnamed_column(dataframe: DataFrame) -> DataFrame:
     return dataframe
 
 
-def _coerce_known_numeric_columns(dataframe: DataFrame) -> DataFrame:
-    result = dataframe.copy()
-    for column_name in result.columns:
-        normalized_name = str(column_name).strip().lower()
-        if not any(hint in normalized_name for hint in NUMERIC_HEADER_HINTS):
-            continue
-
-        source_series = result[column_name]
-        non_empty_values = source_series[source_series != ""]
-        if non_empty_values.empty:
-            continue
-
-        parsed_non_empty = pd.to_numeric(non_empty_values, errors="coerce")
-        if parsed_non_empty.notna().all():
-            result[column_name] = pd.to_numeric(
-                source_series.replace("", pd.NA),
-                errors="coerce",
-            )
-    return result
-
-
 def _to_date(value: object) -> date | None:
     if value is None:
         return None
@@ -207,7 +187,7 @@ def _to_decimal(value: object) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
-def _resolve_source_type(source_type: str) -> "TransactionSourceType":
+def _resolve_source_type(source_type: str) -> TransactionSourceType:
     from app.models.transaction import TransactionSourceType
 
     try:
